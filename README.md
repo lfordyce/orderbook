@@ -2,8 +2,8 @@
 
 ## Summary
 
-This program takes a CSV input of new orders, order cancellations, and flushes and processes each order transaction,
-outputting the result to stdout. Errors and additional information is logged to stderr.
+This program reads a series of new orders, order cancellations, and flushes from a CSV, processes each order transaction,
+and outputting the result to stdout as a CSV. Errors and additional information is logged to stderr.
 
 ## Quick Start
 
@@ -34,6 +34,16 @@ cat etc/input_file.csv | cargo run > results.csv
 cat etc/input_file.csv | cargo run --release
 # Alternatively supply input file path rather than reading from stdin
 cargo run --release -- --input=etc/input_file.csv
+```
+
+## Docker option
+- Build image
+```shell
+docker build -t orderbook .
+```
+- Run
+```shell
+cat etc/input_file.csv | docker run -i orderbook
 ```
 
 ## Error Handling
