@@ -1,5 +1,3 @@
-
-
 use std::borrow::Borrow;
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
@@ -8,10 +6,11 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use num::Zero;
+use orderbook::Acknowledgment;
 
 use crate::core::instrument::{Opposite, Order, Trade};
-use crate::core::{OrderError, OrderRequestError, PriceError, SideError, StatusError, TradeError};
 use crate::core::trade::TradeImpl;
+use crate::core::{OrderError, OrderRequestError, PriceError, SideError, StatusError, TradeError};
 
 #[derive(Debug)]
 pub enum OrderRequest {
@@ -177,6 +176,7 @@ impl Order for LimitOrder {
     type OrderStatus = OrderStatus;
     type Trade = TradeImpl;
     type TradeError = TradeError;
+    type Acknowledgment = Acknowledgment;
 
     fn id(&self) -> Self::Id {
         self.order_id
@@ -216,6 +216,13 @@ impl Order for LimitOrder {
             _ => (),
         }
     }
+
+    fn ack(&mut self, reject: bool) -> Self::Acknowledgment {
+        Acknowledgment {
+            label: "A".to_string(),
+            values: vec![self.user_id, self.order_id],
+        }
+    }
 }
 
 impl Trade<LimitOrder> for LimitOrder {
@@ -242,12 +249,8 @@ impl Trade<LimitOrder> for LimitOrder {
         };
 
         let (ask_price, bid_price) = match (taker.side(), maker.side()) {
-            (Side::Ask, Side::Bid) => {
-                (taker_limit_price, maker_limit_price)
-            }
-            (Side::Bid, Side::Ask) => {
-                (maker_limit_price, taker_limit_price)
-            }
+            (Side::Ask, Side::Bid) => (taker_limit_price, maker_limit_price),
+            (Side::Bid, Side::Ask) => (maker_limit_price, taker_limit_price),
             _ => return Err(SideError::Conflict)?,
         };
 

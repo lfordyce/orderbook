@@ -23,3 +23,28 @@ impl LogTrait for Row {
         &self.label
     }
 }
+
+#[derive(serde::Serialize)]
+pub struct Acknowledgment {
+    pub label: String,
+    pub values: Vec<u64>,
+}
+
+impl LogTrait for Acknowledgment {
+    fn get_label(&self) -> &String {
+        &self.label
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct BookTop {
+    pub label: String,
+    pub side: String,
+    pub values: Vec<u64>,
+}
+
+impl LogTrait for BookTop {
+    fn get_label(&self) -> &String {
+        &self.label
+    }
+}

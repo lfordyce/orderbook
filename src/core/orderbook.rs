@@ -5,7 +5,7 @@ use num::Zero;
 
 use crate::core::depth::{OrdersById, OrdersBySide};
 use crate::core::engine::MatchingEngine;
-use crate::core::instrument::{Order, OrderBook, Spread, Volume};
+use crate::core::instrument::{Order, OrderBook, Spread, SpreadOption, Volume};
 use crate::core::order::{LimitOrder, OrderIndex, OrderQueue, PriceTimePriorityOrderQueue};
 use crate::core::Side;
 
@@ -42,12 +42,11 @@ impl OrderBook for Book {
         &self,
         side: &<Self::Order as Order>::Side,
     ) -> impl Iterator<Item = Self::OrderRef<'_>> + '_ {
-        let order_id_to_order =
-            move |order_id: &<LimitOrder as Order>::Id| -> Self::OrderRef<'_> {
-                self.orders_by_id
-                    .get(order_id)
-                    .expect("every order in tree must also be in index")
-            };
+        let order_id_to_order = move |order_id: &<LimitOrder as Order>::Id| -> Self::OrderRef<'_> {
+            self.orders_by_id
+                .get(order_id)
+                .expect("every order in tree must also be in index")
+        };
 
         self.orders_by_side.iter(side).map(order_id_to_order)
     }
@@ -137,10 +136,26 @@ impl OrderBook for Book {
     }
 
     fn spread(&self) -> Option<Spread<Self::Order>> {
+        // let ask_side = self.peek(&Side::Ask);
         Some((
             self.peek(&Side::Ask)?.limit_price()?,
             self.peek(&Side::Bid)?.limit_price()?,
         ))
+    }
+
+    fn spread_option(&self) -> SpreadOption<Self::Order> {
+        (
+            if let Some(order) = self.peek(&Side::Ask) {
+                order.limit_price()
+            } else {
+                None
+            },
+            if let Some(order) = self.peek(&Side::Bid) {
+                order.limit_price()
+            } else {
+                None
+            },
+        )
     }
 
     fn len(&self) -> (usize, usize) {

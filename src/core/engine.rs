@@ -1,15 +1,18 @@
+use std::convert::TryFrom;
+use std::ptr::read;
+
+use num::Zero;
+use thiserror::Error;
+
+use orderbook::{Acknowledgment, BookTop, LogTrait};
+
 use crate::core::engine::EngineError::MarketUnsupported;
-use crate::core::instrument::{Matchers, Opposite, Order, OrderBook, Trade};
+use crate::core::instrument::{Matchers, Opposite, Order, OrderBook, SpreadOption, Trade};
 use crate::core::order::LimitOrder;
 use crate::core::orderbook::Book;
 use crate::core::OrderRequest;
-use csv::StringRecord;
-use num::Zero;
-use std::convert::TryFrom;
-use thiserror::Error;
-use orderbook::{LogTrait, Row};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DefaultExchangeError {}
 
@@ -17,14 +20,15 @@ pub struct MatchingEngine;
 
 impl Matchers for MatchingEngine {
     type Error = DefaultExchangeError;
-    type Output = ();
+    type Output = Box<dyn LogTrait>;
 
     fn matching<E>(
         exchange: &mut E,
         mut incoming_order: <E as OrderBook>::Order,
-    ) -> Result<(), DefaultExchangeError>
+    ) -> Result<Self::Output, Self::Error>
     where
         E: OrderBook,
+        <<E as OrderBook>::Order as Order>::Acknowledgment: 'static,
         // <E as OrderBook>::Order: TryFrom<<E as OrderBook>::IncomingOrder>,
     {
         while !incoming_order.is_closed() {
@@ -53,29 +57,28 @@ impl Matchers for MatchingEngine {
             }
         }
 
+        // let order_id = incoming_order.id();
+        // let user_id =  incoming_order.user_id();
+        let ack = incoming_order.ack(false);
         exchange.insert(incoming_order);
 
-        Ok(())
+        Ok(Box::new(ack))
     }
 }
 
-pub struct Engine
-{
+pub struct Engine {
     orderbook: Book,
     log_sender: std::sync::mpsc::Sender<Box<dyn LogTrait>>,
 }
 
-impl Engine
-{
-    #[inline]
-    pub fn new(_pair: &str, log_sender: std::sync::mpsc::Sender<Box<dyn LogTrait>>) -> Self {
+impl Engine {
+    pub fn new(_symbol: &str, log_sender: std::sync::mpsc::Sender<Box<dyn LogTrait>>) -> Self {
         Self {
             orderbook: Book::new(),
             log_sender,
         }
     }
 
-    #[inline]
     pub fn process(&mut self, incoming_order: OrderRequest) -> Result<(), EngineError> {
         match incoming_order {
             OrderRequest::Create { price, .. } => {
@@ -84,35 +87,65 @@ impl Engine
                 }
 
                 let order = LimitOrder::try_from(incoming_order).unwrap();
-                let _ = self.orderbook.matching(order);
-            }
-            OrderRequest::Cancel { user_order_id, .. } => {
-                self.orderbook.remove(&user_order_id);
-            }
-            OrderRequest::FlushBook => {
-                let (ask_length, bid_length) = self.orderbook.len();
-                if let Some((ask_price, bid_price)) = self.orderbook.spread() {
-                    // Row {
-                    //     label: "spread".to_string(),
-                    //     values: vec![ask_price, bid_price],
-                    // }
-                    // println!("SPREAD -- ASK: {:?} BID: {:?}", ask_price, bid_price);
+                if let Ok(r) = self.orderbook.matching(order) {
                     self.log_sender
-                        .send(Box::new(Row {
-                            label: "spread".to_string(),
-                            values: vec![ask_price, bid_price],
-                        }))
+                        .send(r)
                         .unwrap_or_else(|e| eprintln!("{}", e));
                 }
+                let (a, b) = self.orderbook.volume();
+                let (side, qty, price) = match self.orderbook.spread_option() {
+                    (Some(ask_price), Some(bid_price)) => {
+                        if ask_price > bid_price {
+                            ("S", a, ask_price)
+                        } else {
+                            ("B", b, bid_price)
+                        }
+                    }
+                    (Some(ask_price), None) => {
+                        ("S", a, ask_price)
+                    }
+                    (None, Some(bid_price)) => {
+                        ("B", b, bid_price)
+                    }
+                    _ => ("NONE", a, 0),
+                };
                 self.log_sender
-                    .send(Box::new(Row {
-                        label: "book_length".to_string(),
-                        values: vec![ask_length as u64, bid_length as u64],
+                    .send(Box::new(BookTop {
+                        label: "B".to_string(),
+                        side: side.to_string(),
+                        values: vec![price, qty],
                     }))
                     .unwrap_or_else(|e| eprintln!("{}", e));
-                // println!("ASK LENGTH{:?} BID LENGTH {:?}", ask_length, bid_length);
-                self.orderbook = Book::new()
+
+                // if let Some((ask_price, bid_price)) = self.orderbook.spread() {
+                //     let (side, qty) = if ask_price > bid_price {
+                //         ("S", a)
+                //     } else {
+                //         ("B", b)
+                //     };
+                //     self.log_sender
+                //         .send(Box::new(BookTop {
+                //             label: "B".to_string(),
+                //             side: side.to_string(),
+                //             values: vec![ask_price, qty],
+                //         }))
+                //         .unwrap_or_else(|e| eprintln!("{}", e));
+                // }
             }
+            OrderRequest::Cancel {
+                user_id,
+                user_order_id,
+                ..
+            } => {
+                self.orderbook.remove(&user_order_id);
+                self.log_sender
+                    .send(Box::new(Acknowledgment {
+                        label: "A".to_string(),
+                        values: vec![user_id, user_order_id],
+                    }))
+                    .unwrap_or_else(|e| eprintln!("{}", e));
+            }
+            OrderRequest::FlushBook => self.orderbook = Book::new(),
         };
 
         Ok(())

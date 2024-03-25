@@ -1,8 +1,10 @@
 use num::Zero;
+use orderbook::LogTrait;
 use std::convert::TryFrom;
 use std::ops::{Add, Deref, DerefMut, Sub};
 
 pub type Spread<T> = (<T as Order>::Price, <T as Order>::Price);
+pub type SpreadOption<T> = (Option<<T as Order>::Price>, Option<<T as Order>::Price>);
 pub type Volume<T> = (<T as Order>::Amount, <T as Order>::Amount);
 
 pub trait Order: PartialOrd {
@@ -19,6 +21,8 @@ pub trait Order: PartialOrd {
     type OrderStatus: Copy + Eq;
     type Trade;
     type TradeError: std::error::Error;
+
+    type Acknowledgment: LogTrait;
     /// Return order unique identifier.
     fn id(&self) -> Self::Id;
     fn user_id(&self) -> Self::UserId;
@@ -31,6 +35,8 @@ pub trait Order: PartialOrd {
     fn limit_price(&self) -> Option<Self::Price>;
     /// Cancel the order.
     fn cancel(&mut self);
+
+    fn ack(&mut self, reject: bool) -> Self::Acknowledgment;
 }
 
 pub trait Trade<Rhs>: Order
@@ -57,8 +63,9 @@ pub trait Matchers {
         incoming_order: <E as OrderBook>::Order,
     ) -> Result<Self::Output, Self::Error>
     where
-        E: OrderBook;
-        // <E as OrderBook>::Order: TryFrom<<E as OrderBook>::IncomingOrder>;
+        E: OrderBook,
+        <<E as OrderBook>::Order as Order>::Acknowledgment: 'static;
+    // <E as OrderBook>::Order: TryFrom<<E as OrderBook>::IncomingOrder>;
 }
 
 pub trait OrderBook {
@@ -104,6 +111,8 @@ pub trait OrderBook {
     /// prices.
     fn spread(&self) -> Option<Spread<Self::Order>>;
 
+    fn spread_option(&self) -> SpreadOption<Self::Order>;
+
     /// Returns the number of shares being bid on or offered.
     fn len(&self) -> (usize, usize);
 
@@ -123,8 +132,9 @@ pub trait OrderBook {
         &mut self,
         incoming_order: Self::Order,
     ) -> Result<<Self::Matching as Matchers>::Output, <Self::Matching as Matchers>::Error>
-        where
-            Self: OrderBook + Sized,
+    where
+        Self: OrderBook + Sized,
+        <<Self as OrderBook>::Order as Order>::Acknowledgment: 'static,
     {
         <Self::Matching as Matchers>::matching(self, incoming_order)
     }
