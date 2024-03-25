@@ -1,12 +1,11 @@
 use std::collections::btree_map::Entry;
-use std::collections::HashMap;
 
 use num::Zero;
 
 use crate::core::depth::{OrdersById, OrdersBySide};
-use crate::core::engine::MatchingEngine;
-use crate::core::instrument::{Order, OrderBook, Spread, SpreadOption, Volume};
-use crate::core::order::{LimitOrder, OrderIndex, OrderQueue, PriceTimePriorityOrderQueue};
+use crate::core::domain::{Order, OrderBook, Spread, SpreadOption, Volume};
+use crate::core::matcher::MatchingEngine;
+use crate::core::order::{LimitOrder};
 use crate::core::Side;
 
 pub struct Book {
@@ -34,7 +33,6 @@ impl Book {
 impl OrderBook for Book {
     type Matching = MatchingEngine;
     type Order = LimitOrder;
-    // type IncomingOrder = LimitOrder;
     type OrderRef<'e> = &'e LimitOrder where Self: 'e;
     type OrderRefMut<'e> = &'e mut LimitOrder where Self: 'e;
 
@@ -51,7 +49,7 @@ impl OrderBook for Book {
         self.orders_by_side.iter(side).map(order_id_to_order)
     }
 
-    fn insert(&mut self, order: Self::Order) {
+    fn place(&mut self, order: Self::Order) {
         self.orders_by_side[order.side()]
             .entry(
                 order
@@ -64,7 +62,7 @@ impl OrderBook for Book {
         self.orders_by_id.insert(order.id(), order);
     }
 
-    fn remove(&mut self, order_id: &<Self::Order as Order>::Id) -> Option<Self::Order> {
+    fn cancel(&mut self, order_id: &<Self::Order as Order>::Id) -> Option<Self::Order> {
         let order = self.orders_by_id.remove(order_id)?;
 
         let limit_price = order
@@ -136,14 +134,13 @@ impl OrderBook for Book {
     }
 
     fn spread(&self) -> Option<Spread<Self::Order>> {
-        // let ask_side = self.peek(&Side::Ask);
         Some((
             self.peek(&Side::Ask)?.limit_price()?,
             self.peek(&Side::Bid)?.limit_price()?,
         ))
     }
 
-    fn spread_option(&self) -> SpreadOption<Self::Order> {
+    fn peek_top_of_book(&self) -> SpreadOption<Self::Order> {
         (
             if let Some(order) = self.peek(&Side::Ask) {
                 order.limit_price()
@@ -183,117 +180,5 @@ impl OrderBook for Book {
             .unwrap_or_else(Zero::zero);
 
         (ask, bid)
-    }
-}
-
-#[derive(Debug)]
-pub struct Books {
-    order_symbol: String,
-    bids: PriceTimePriorityOrderQueue<OrderIndex>,
-    asks: PriceTimePriorityOrderQueue<OrderIndex>,
-    orders: HashMap<u64, LimitOrder>,
-    // _trade: PhantomData<Trade>
-}
-
-/// This trait defines the operations that can be performed by the orderbook. It
-/// embodies the basic operations that are typical of an orderbook
-pub trait OrderBookAlt {
-    /// Cancel an open order in the book. Cancelling a non-existent order should fail
-    fn cancel(&mut self, orderid: u64) -> Result<(), ()>;
-
-    /// Place an order into the book, should the order already exists it should also fail
-    fn place(&mut self, order: LimitOrder) -> Result<(), ()>;
-
-    /// Gets the ask at the top of the book (head of the ask queue)
-    fn peek_top_ask(&self) -> Option<&LimitOrder>;
-
-    /// Gets the bid at the top of the book (head of the bid queue)
-    fn peek_top_bid(&self) -> Option<&LimitOrder>;
-
-    /// Allows for the modification of the order quantity in-place
-    fn modify_quantity(&mut self, orderid: u64, qty: u64);
-
-    /// Removes the top bid from the head of the queue
-    fn pop_top_bid(&mut self) -> Option<LimitOrder>;
-
-    /// Removes the top ask from the head of the ask queue
-    fn pop_top_ask(&mut self) -> Option<LimitOrder>;
-}
-
-impl Books {
-    pub fn new(order_symbol: String) -> Self {
-        Books {
-            order_symbol,
-            bids: PriceTimePriorityOrderQueue::with_capacity(1000),
-            asks: PriceTimePriorityOrderQueue::with_capacity(1000),
-            orders: HashMap::with_capacity(1000),
-        }
-    }
-}
-
-impl OrderBookAlt for Books {
-    fn cancel(&mut self, order_id: u64) -> Result<(), ()> {
-        match self.orders.remove(&order_id) {
-            Some(order) => {
-                match order.side {
-                    Side::Bid => self.bids.remove(OrderIndex::from(order)),
-                    Side::Ask => self.asks.remove(OrderIndex::from(order)),
-                };
-                return Ok(());
-            }
-            None => Ok(()),
-        }
-    }
-
-    fn place(&mut self, order: LimitOrder) -> Result<(), ()> {
-        // if OrderType::Market == order.order_type {
-        //     return Err(Failure::OrderRejected(
-        //         "Only limit orders can be placed in the orderbook".to_string(),
-        //     ));
-        // }
-        // if self.trading_pair != order.trading_pair {
-        //     return Err(Failure::InvalidOrderForBook);
-        // }
-
-        self.orders.insert(order.order_id, order.clone());
-        match order.side {
-            Side::Bid => self.bids.push(OrderIndex::from(order)),
-            Side::Ask => self.asks.push(OrderIndex::from(order)),
-        };
-        Ok(())
-    }
-
-    fn peek_top_ask(&self) -> Option<&LimitOrder> {
-        if let Some(key) = self.asks.peek() {
-            return self.orders.get(&key.order_id);
-        }
-        None
-    }
-
-    fn peek_top_bid(&self) -> Option<&LimitOrder> {
-        if let Some(key) = self.bids.peek() {
-            return self.orders.get(&key.order_id);
-        }
-        None
-    }
-
-    fn modify_quantity(&mut self, orderid: u64, quantity: u64) {
-        if let Some(order) = self.orders.get_mut(&orderid) {
-            order.quantity = quantity
-        }
-    }
-
-    fn pop_top_bid(&mut self) -> Option<LimitOrder> {
-        if let Some(key) = self.bids.pop() {
-            return self.orders.remove(&key.order_id);
-        }
-        None
-    }
-
-    fn pop_top_ask(&mut self) -> Option<LimitOrder> {
-        if let Some(key) = self.asks.pop() {
-            return self.orders.remove(&key.order_id);
-        }
-        None
     }
 }

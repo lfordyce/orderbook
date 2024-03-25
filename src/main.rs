@@ -1,82 +1,36 @@
-use crate::core::{Engine, Side};
-use orderbook::LogTrait;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{error::Error, io};
+use clap::Parser;
+use orderbook::run;
+use std::path::PathBuf;
+use std::{fs, io};
 
-mod core;
+#[derive(Parser, Clone, Debug)]
+struct Args {}
+
+#[derive(Debug, Default)]
+enum Input {
+    #[default]
+    Stdin,
+    File(PathBuf),
+}
+
+impl From<&str> for Input {
+    fn from(s: &str) -> Self {
+        Input::File(s.to_owned().into())
+    }
+}
+
+impl io::Read for Input {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Input::Stdin => io::stdin().lock().read(buf),
+            Input::File(path) => fs::File::open(path)?.read(buf),
+        }
+    }
+}
 
 fn main() {
-    let mut thread_handlers = vec![];
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let (log_tx, log_rx) = std::sync::mpsc::channel::<Box<dyn LogTrait>>();
-
-    thread_handlers.push(std::thread::spawn(move || {
-        let mut rdr = csv::ReaderBuilder::new()
-            .flexible(true)
-            .comment(Some(b'#'))
-            .has_headers(false)
-            .from_reader(io::stdin());
-        for result in rdr.records() {
-            if let Ok(record) = result {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos();
-                match &record[0] {
-                    "N" => {
-                        tx.send(core::OrderRequest::Create {
-                            user_id: record[1].trim().parse::<u64>().unwrap(),
-                            symbol: record[2].trim().parse().unwrap(),
-                            price: record[3].trim().parse::<u64>().unwrap(),
-                            qty: record[4].trim().parse::<u64>().unwrap(),
-                            side: record[5].trim().parse::<Side>().unwrap(),
-                            user_order_id: record[6].trim().parse::<u64>().unwrap(),
-                            unix_nano: now,
-                        })
-                        .unwrap_or_else(|e| eprintln!("{}", e));
-                    }
-                    "C" => {
-                        tx.send(core::OrderRequest::Cancel {
-                            user_id: record[1].trim().parse::<u64>().unwrap(),
-                            user_order_id: record[2].trim().parse::<u64>().unwrap(),
-                            unix_nano: now,
-                        })
-                        .unwrap_or_else(|e| eprintln!("{}", e));
-                    }
-                    "F" => {
-                        tx.send(core::OrderRequest::FlushBook)
-                            .unwrap_or_else(|e| eprintln!("{}", e));
-                    }
-                    _ => continue,
-                }
-            }
-        }
-        drop(tx);
-    }));
-
-    thread_handlers.push(std::thread::spawn(move || {
-        let mut engine = Engine::new("", log_tx);
-        while let Ok(order) = rx.recv() {
-            println!("{:?}", order);
-            if let Err(err) = engine.process(order) {
-                eprintln!("something went wrong: {}", err);
-            };
-        }
-    }));
-
-    for handle in thread_handlers {
-        handle.join().expect("TODO: panic message");
+    if let Err(err) = run() {
+        eprintln!("{}", err);
+        std::process::exit(1);
     }
-
-    let mut csv_writer = csv::WriterBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .from_writer(io::stdout());
-    while let Ok(record) = log_rx.recv() {
-        csv_writer
-            .serialize(record)
-            .unwrap_or_else(|e| eprintln!("failed to serialize CSV record {}", e));
-    }
-    csv_writer.flush().unwrap()
 }

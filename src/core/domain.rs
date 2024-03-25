@@ -1,6 +1,5 @@
+use crate::LogTrait;
 use num::Zero;
-use orderbook::LogTrait;
-use std::convert::TryFrom;
 use std::ops::{Add, Deref, DerefMut, Sub};
 
 pub type Spread<T> = (<T as Order>::Price, <T as Order>::Price);
@@ -55,31 +54,27 @@ pub trait Opposite<Opposite = Self> {
     fn opposite(&self) -> Opposite;
 }
 
-pub trait Matchers {
+/// Matchers defines the operation to match an incoming order and its respective book and attempts to find a set
+/// of matching trades (bids to asks and vice-versa).
+pub trait Match {
     type Error;
     type Output;
-    fn matching<E>(
-        exchange: &mut E,
-        incoming_order: <E as OrderBook>::Order,
+    fn matching<B>(
+        book: &mut B,
+        incoming_order: <B as OrderBook>::Order,
     ) -> Result<Self::Output, Self::Error>
     where
-        E: OrderBook,
-        <<E as OrderBook>::Order as Order>::Acknowledgment: 'static;
-    // <E as OrderBook>::Order: TryFrom<<E as OrderBook>::IncomingOrder>;
+        B: OrderBook,
+        <<B as OrderBook>::Order as Order>::Acknowledgment: 'static;
 }
 
+/// OrderBook defines the operations that can be performed by the order book. It
+/// embodies the basic operations that are typical of an order book
 pub trait OrderBook {
-    type Matching: Matchers;
+    type Matching: Match;
 
     type Order: Order + Trade<Self::Order>;
 
-    // type IncomingOrder: Order<
-    //     Amount = <Self::Order as Order>::Amount,
-    //     Id = <Self::Order as Order>::Id,
-    //     Price = <Self::Order as Order>::Price,
-    //     Side = <Self::Order as Order>::Side,
-    //     OrderStatus = <Self::Order as Order>::OrderStatus,
-    // >;
     type OrderRef<'e>: Deref<Target = Self::Order>
     where
         Self: 'e;
@@ -87,36 +82,38 @@ pub trait OrderBook {
     where
         Self: 'e;
 
-    // Returns an iterator over the given side of the exchange.
+    // Returns an iterator over the given side of the order book.
     fn iter(
         &self,
         side: &<Self::Order as Order>::Side,
     ) -> impl Iterator<Item = Self::OrderRef<'_>> + '_;
 
-    fn insert(&mut self, order: Self::Order);
+    /// Place an order into the book.
+    fn place(&mut self, order: Self::Order);
 
-    /// Removes an order from the exchange.
-    fn remove(&mut self, order: &<Self::Order as Order>::Id) -> Option<Self::Order>;
+    /// Cancel an open order in the book. Cancelling a non-existent order will result in a no-op.
+    fn cancel(&mut self, order: &<Self::Order as Order>::Id) -> Option<Self::Order>;
 
-    /// Returns a reference of the most relevant order in the exchange.
+    /// Returns a reference to the order (ask or bid) at the top of the book (head of the ask queue)
     fn peek(&self, side: &<Self::Order as Order>::Side) -> Option<Self::OrderRef<'_>>;
 
-    /// Returns a mutable reference of the most relevant order in the exchange.
+    /// Returns a reference to the order (ask or bid) at the top of the book (head of the ask queue)
     fn peek_mut(&mut self, side: &<Self::Order as Order>::Side) -> Option<Self::OrderRefMut<'_>>;
 
-    /// Removes the most relevant order in the exchange.
+    /// Removes the top bid or aks from the head of the queue
     fn pop(&mut self, side: &<Self::Order as Order>::Side) -> Option<Self::Order>;
 
     /// Returns the difference or gap that exists between bid and ask
     /// prices.
     fn spread(&self) -> Option<Spread<Self::Order>>;
 
-    fn spread_option(&self) -> SpreadOption<Self::Order>;
+    /// Gets the bid and ask at the top of the book (head of the bid queue)
+    fn peek_top_of_book(&self) -> SpreadOption<Self::Order>;
 
     /// Returns the number of shares being bid on or offered.
     fn len(&self) -> (usize, usize);
 
-    /// Returns `true` if the exchange contains no items.
+    /// Returns `true` if the order book contains no items.
     fn is_empty(&self) -> bool {
         self.len() == (0, 0)
     }
@@ -126,26 +123,15 @@ pub trait OrderBook {
     /// Attempt to match an incoming order.
     ///
     /// This method takes an order as input and attempts to match it against the
-    /// existing limit orders in the orderbook. Matching is done in a specific
-    /// order based on the orderbook's rules, such as price-time priority.
+    /// existing limit orders in the order book.
     fn matching(
         &mut self,
         incoming_order: Self::Order,
-    ) -> Result<<Self::Matching as Matchers>::Output, <Self::Matching as Matchers>::Error>
+    ) -> Result<<Self::Matching as Match>::Output, <Self::Matching as Match>::Error>
     where
         Self: OrderBook + Sized,
         <<Self as OrderBook>::Order as Order>::Acknowledgment: 'static,
     {
-        <Self::Matching as Matchers>::matching(self, incoming_order)
+        <Self::Matching as Match>::matching(self, incoming_order)
     }
-    // fn matching(
-    //     &mut self,
-    //     incoming_order: Self::IncomingOrder,
-    // ) -> Result<<Self::Matching as Matchers>::Output, <Self::Matching as Matchers>::Error>
-    // where
-    //     Self: OrderBook + Sized,
-    //     Self::Order: TryFrom<Self::IncomingOrder>,
-    // {
-    //     <Self::Matching as Matchers>::matching(self, incoming_order)
-    // }
 }

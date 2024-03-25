@@ -1,16 +1,15 @@
 use std::borrow::Borrow;
 use std::cmp::{Ordering, Reverse};
-use std::collections::BinaryHeap;
 use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use num::Zero;
-use orderbook::Acknowledgment;
 
-use crate::core::instrument::{Opposite, Order, Trade};
+use crate::Acknowledgment;
+use crate::core::{OrderError, OrderRequestError, TradeError};
+use crate::core::domain::{Opposite, Order};
 use crate::core::trade::TradeImpl;
-use crate::core::{OrderError, OrderRequestError, PriceError, SideError, StatusError, TradeError};
 
 #[derive(Debug)]
 pub enum OrderRequest {
@@ -38,13 +37,13 @@ pub enum Side {
 }
 
 impl FromStr for Side {
-    type Err = ();
+    type Err = OrderRequestError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
             "S" => Ok(Side::Ask),
             "B" => Ok(Side::Bid),
-            _ => Err(()),
+            _ => Err(OrderRequestError::InvalidOrderSide(input.to_owned())),
         }
     }
 }
@@ -219,185 +218,13 @@ impl Order for LimitOrder {
 
     fn ack(&mut self, reject: bool) -> Self::Acknowledgment {
         Acknowledgment {
-            label: "A".to_string(),
-            values: vec![self.user_id, self.order_id],
+            label: if reject {
+                "R".to_string()
+            } else {
+                "A".to_string()
+            },
+            user_id: self.user_id,
+            user_order_id: self.order_id,
         }
     }
 }
-
-impl Trade<LimitOrder> for LimitOrder {
-    fn trade(&mut self, other: &mut LimitOrder) -> Result<Self::Trade, Self::TradeError> {
-        let (maker, taker) = (self, other);
-
-        Self::Trade::try_new(maker, taker)
-    }
-
-    fn matches(&self, other: &LimitOrder) -> Result<(), Self::TradeError> {
-        let (maker, taker) = (self, other);
-
-        // Matching cannot occur between closed orders.
-        if taker.is_closed() || maker.is_closed() {
-            return Err(StatusError::Closed)?;
-        }
-
-        let maker_limit_price = maker
-            .limit_price()
-            .expect("market makers always have a limit price");
-
-        let Some(taker_limit_price) = taker.limit_price() else {
-            return Ok(());
-        };
-
-        let (ask_price, bid_price) = match (taker.side(), maker.side()) {
-            (Side::Ask, Side::Bid) => (taker_limit_price, maker_limit_price),
-            (Side::Bid, Side::Ask) => (maker_limit_price, taker_limit_price),
-            _ => return Err(SideError::Conflict)?,
-        };
-
-        (bid_price >= ask_price)
-            .then_some(())
-            .ok_or(PriceError::Incompatible)
-            .map_err(Into::into)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct TradeS {
-    pub order_id: u64,
-    pub side: Side,
-    pub price: u64,
-    // pub status: OrderStatus,
-    pub quantity: u64,
-    pub timestamp: u128,
-}
-
-impl From<LimitOrder> for OrderIndex {
-    fn from(value: LimitOrder) -> Self {
-        OrderIndex {
-            order_id: value.order_id,
-            price: value.price,
-            side: value.side,
-            timestamp: value.timestamp,
-        }
-    }
-}
-
-#[derive(Clone, Eq, Copy, Debug)]
-pub struct OrderIndex {
-    pub order_id: u64,
-    pub price: u64,
-    pub timestamp: u128,
-    pub side: Side,
-}
-
-// The ordering determines how the orders are arranged in the queue. For price time priority
-// ordering, we want orders inserted based on the price and the time of entry. For Bids this
-// means the highest price gets the top priority, for Asks the lowest price gets the top priority
-// For orders with the same price, the longest staying in the queue gets the higher priority
-impl Ord for OrderIndex {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.price > other.price {
-            match self.side {
-                Side::Bid => Ordering::Greater,
-                Side::Ask => Ordering::Less,
-            }
-        } else if self.price < other.price {
-            match self.side {
-                Side::Bid => Ordering::Less,
-                Side::Ask => Ordering::Greater,
-            }
-        } else {
-            other.timestamp.cmp(&self.timestamp)
-        }
-    }
-}
-
-impl PartialOrd for OrderIndex {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for OrderIndex {
-    fn eq(&self, other: &Self) -> bool {
-        self.order_id == other.order_id
-            && self.price == other.price
-            && self.side == other.side
-            && self.timestamp == other.timestamp
-    }
-}
-
-/// Encapsulates a priority queue of Orders, ordered by OrderIndex.
-/// A key index is a structure that defines some ordering, as well as information that
-/// allows implementations of the order queue determine priority of items
-pub trait KeyIndx: Clone + Ord + PartialEq + Copy {}
-
-/// This trait defines the operations that should be performed by the order queue. It is
-/// expected that the backing implemenation be a priority queue.
-///
-/// It is genric over type [T], which is any trait that implements the [KeyIndx] trait.
-///
-/// [KeyIndx] provides the ordering, which determines how items are prioritized in the queue
-///
-pub trait OrderQueue<T: KeyIndx> {
-    /// Pushes an item into the queue
-    fn push(&mut self, item: T);
-
-    // Gets the item at the head of the queue
-    fn peek(&self) -> Option<&T>;
-
-    /// Removes the item at the head of the queue
-    fn pop(&mut self) -> Option<T>;
-
-    /// Removes the specified item from the queue. This operation balances the queue
-    fn remove(&mut self, item: T) -> Option<T>;
-}
-
-/// Simple implementation of the order queue. Uses a binary heap as a priority queue
-/// Orders are prioritized by price and time
-#[derive(Debug)]
-pub struct PriceTimePriorityOrderQueue<T> {
-    heap: BinaryHeap<T>,
-}
-
-impl<T> PriceTimePriorityOrderQueue<T>
-where
-    T: KeyIndx,
-{
-    pub fn new() -> Self {
-        Self {
-            heap: BinaryHeap::with_capacity(16),
-        }
-    }
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            heap: BinaryHeap::with_capacity(capacity),
-        }
-    }
-}
-
-impl<T> OrderQueue<T> for PriceTimePriorityOrderQueue<T>
-where
-    T: KeyIndx,
-{
-    fn push(&mut self, item: T) {
-        self.heap.push(item)
-    }
-
-    fn peek(&self) -> Option<&T> {
-        self.heap.peek()
-    }
-
-    fn pop(&mut self) -> Option<T> {
-        self.heap.pop()
-    }
-
-    fn remove(&mut self, item: T) -> Option<T> {
-        let mut key_vec = self.heap.to_owned().into_vec();
-        key_vec.retain(|k| *k != item);
-        self.heap = key_vec.into();
-        Some(item)
-    }
-}
-
-impl KeyIndx for OrderIndex {}

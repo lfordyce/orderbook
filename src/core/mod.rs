@@ -1,21 +1,21 @@
 use thiserror::Error;
 mod depth;
+mod domain;
 mod engine;
-mod instrument;
 mod matcher;
-mod orderbook;
-mod types;
-
 mod order;
+mod orderbook;
 mod trade;
 
+pub use engine::{Engine, EngineError};
 pub use order::{OrderRequest, Side};
-pub use engine::Engine;
 
 #[derive(Debug, Error)]
 pub enum OrderRequestError {
     #[error("order type mismatch")]
     MismatchType,
+    #[error("invalid order side `{0}`")]
+    InvalidOrderSide(String),
 }
 
 #[derive(Debug, Error)]
@@ -40,8 +40,6 @@ pub enum TradeError {
 pub enum PriceError {
     #[error("prices do not match each other")]
     Incompatible,
-    #[error("limit price is a must")]
-    NotFound,
 }
 
 #[derive(Debug, Error)]
