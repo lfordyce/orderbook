@@ -3,7 +3,7 @@
 ## Summary
 
 This program reads a series of new orders, order cancellations, and flushes from a CSV, processes each order transaction,
-and outputting the result to stdout as a CSV. Errors and additional information is logged to stderr.
+and outputting the result to stdout as a CSV. Errors and additional information are logged to stderr.
 
 ## Quick Start
 
@@ -14,6 +14,9 @@ cargo test
 ```
 
 ## Usage
+```shell
+cargo run -- --help
+```
 
 ```shell
 Usage: orderbook [OPTIONS]
