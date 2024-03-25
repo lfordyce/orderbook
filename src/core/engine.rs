@@ -25,7 +25,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(_symbol: &str, log_sender: std::sync::mpsc::Sender<Box<dyn LogTrait>>) -> Self {
+    pub fn new(log_sender: std::sync::mpsc::Sender<Box<dyn LogTrait>>) -> Self {
         Self {
             orderbook: Book::new(),
             log_sender,

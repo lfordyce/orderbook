@@ -12,4 +12,5 @@ either = "1.10.0"
 erased-serde = "0.4.4"
 num = "0.4.1"
 serde = { version = "1", features = ["derive"] }
+tap = "1.0.1"
 thiserror = "1"
