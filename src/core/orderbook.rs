@@ -3,9 +3,9 @@ use std::collections::btree_map::Entry;
 use num::Zero;
 
 use crate::core::depth::{OrdersById, OrdersBySide};
-use crate::core::domain::{Order, OrderBook, Spread, SpreadOption, Volume};
+use crate::core::domain::{Order, OrderBook, Spread, Volume};
 use crate::core::matcher::MatchingEngine;
-use crate::core::order::{LimitOrder};
+use crate::core::order::LimitOrder;
 use crate::core::Side;
 
 pub struct Book {
@@ -27,6 +27,11 @@ impl Book {
     #[inline]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn flush(&mut self) {
+        self.orders_by_id.clear();
+        self.orders_by_side.flush();
     }
 }
 
@@ -81,7 +86,7 @@ impl OrderBook for Book {
             level
                 .get()
                 .iter()
-                .position(|&order_id| order.id() == order_id)
+                .position(|&inner_order_id| order.id() == inner_order_id)
                 .and_then(|index| level.get_mut().remove(index))
         }
         .expect("indexed orders must be in the book tree");
@@ -133,14 +138,7 @@ impl OrderBook for Book {
             .into()
     }
 
-    fn spread(&self) -> Option<Spread<Self::Order>> {
-        Some((
-            self.peek(&Side::Ask)?.limit_price()?,
-            self.peek(&Side::Bid)?.limit_price()?,
-        ))
-    }
-
-    fn peek_top_of_book(&self) -> SpreadOption<Self::Order> {
+    fn peek_top_of_book(&self) -> Spread<Self::Order> {
         (
             if let Some(order) = self.peek(&Side::Ask) {
                 order.limit_price()

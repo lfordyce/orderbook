@@ -37,6 +37,7 @@ pub enum Side {
 }
 
 impl FromStr for Side {
+
     type Err = OrderRequestError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {

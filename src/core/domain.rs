@@ -1,9 +1,7 @@
 use crate::LogTrait;
 use num::Zero;
 use std::ops::{Add, Deref, DerefMut, Sub};
-
-pub type Spread<T> = (<T as Order>::Price, <T as Order>::Price);
-pub type SpreadOption<T> = (Option<<T as Order>::Price>, Option<<T as Order>::Price>);
+pub type Spread<T> = (Option<<T as Order>::Price>, Option<<T as Order>::Price>);
 pub type Volume<T> = (<T as Order>::Amount, <T as Order>::Amount);
 
 pub trait Order: PartialOrd {
@@ -103,12 +101,8 @@ pub trait OrderBook {
     /// Removes the top bid or aks from the head of the queue
     fn pop(&mut self, side: &<Self::Order as Order>::Side) -> Option<Self::Order>;
 
-    /// Returns the difference or gap that exists between bid and ask
-    /// prices.
-    fn spread(&self) -> Option<Spread<Self::Order>>;
-
     /// Gets the bid and ask at the top of the book (head of the bid queue)
-    fn peek_top_of_book(&self) -> SpreadOption<Self::Order>;
+    fn peek_top_of_book(&self) -> Spread<Self::Order>;
 
     /// Returns the number of shares being bid on or offered.
     fn len(&self) -> (usize, usize);

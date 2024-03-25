@@ -35,7 +35,7 @@ impl Match for MatchingEngine {
 
             if top_order.is_closed() {
                 let top_order_id = top_order.id();
-                // We must explicit drop to reuse the order book.
+                // Explicit drop to reuse the order book.
                 drop(top_order);
                 // As long as top order is completed, it can be safely removed from order book.
                 book.cancel(&top_order_id).expect("order should be `Some`");

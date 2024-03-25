@@ -71,6 +71,11 @@ where
     pub fn peek(&self, side: &<T as Order>::Side) -> Option<&<T as Order>::Id> {
         self.iter(side).next()
     }
+
+    pub fn flush(&mut self) {
+        self.bid.clear();
+        self.ask.clear();
+    }
 }
 
 impl<T: Order> Default for OrdersBySide<T> {

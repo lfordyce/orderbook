@@ -1,14 +1,16 @@
 use thiserror::Error;
 mod depth;
-mod domain;
+pub mod domain;
 mod engine;
 mod matcher;
-mod order;
+pub mod order;
 mod orderbook;
 mod trade;
 
 pub use engine::{Engine, EngineError};
 pub use order::{OrderRequest, Side};
+pub use orderbook::Book;
+pub use domain::OrderBook;
 
 #[derive(Debug, Error)]
 pub enum OrderRequestError {

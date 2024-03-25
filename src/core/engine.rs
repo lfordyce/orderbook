@@ -54,7 +54,7 @@ impl Engine {
                             }
                             (Some(ask_price), None) => ("S", ask_volume, ask_price),
                             (None, Some(bid_price)) => ("B", bib_volume, bid_price),
-                            _ => ("NONE", 0, 0),
+                            _ => ("-", 0, 0),
                         };
                         self.log_sender.send(Box::new(BookTop {
                             label: "B".to_owned(),
@@ -74,7 +74,9 @@ impl Engine {
                     }))?;
                 }
             }
-            OrderRequest::FlushBook => self.orderbook = Book::new(),
+            OrderRequest::FlushBook => {
+                self.orderbook.flush();
+            }
         };
 
         Ok(())

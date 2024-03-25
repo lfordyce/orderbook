@@ -11,25 +11,13 @@ use crate::cli::{Config, InputType};
 use crate::core::{Engine, EngineError, OrderRequest, Side};
 
 mod cli;
-mod core;
+pub mod core;
 
 pub trait LogTrait: erased_serde::Serialize + Send + Sync {
     fn get_label(&self) -> &String;
 }
 
 serialize_trait_object!(LogTrait);
-
-#[derive(serde::Serialize)]
-pub struct Row {
-    pub label: String,
-    pub values: Vec<u64>,
-}
-
-impl LogTrait for Row {
-    fn get_label(&self) -> &String {
-        &self.label
-    }
-}
 
 #[derive(serde::Serialize)]
 pub struct Acknowledgment {
@@ -81,13 +69,13 @@ impl From<InputType> for InputProcessor {
                 InputType::File(path) => Either::Left(std::fs::File::open(path)?),
                 InputType::Stdin => Either::Right(io::stdin()),
             }
-            .pipe(|r| {
+            .pipe(|either_reader| {
                 csv::ReaderBuilder::new()
                     .trim(Trim::All)
                     .flexible(true)
                     .comment(Some(b'#'))
                     .has_headers(false)
-                    .from_reader(r)
+                    .from_reader(either_reader)
             });
 
             for record in rdr.records().flatten() {
